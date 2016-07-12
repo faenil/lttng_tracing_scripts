@@ -37,7 +37,7 @@ server_vars_customizable() {
 SCRIPT_NAME=`basename $0`
 CHROOT_PATH=/home/phablet/chroot-tracing
 SCRIPTS_ABS_PATH=/home/phablet/lttng_tracing_scripts
-MOUNTPOINTS=("/system" "/vendor" "/run" "/opt" "/proc" "/dev" "/sys" "/tmp" "$SCRIPTS_ABS_PATH" "/var")
+MOUNTPOINTS=("/system" "/vendor" "/run" "/opt" "/proc" "/dev" "/sys" "/tmp" "$SCRIPTS_ABS_PATH")
              # /system /vendor -> vendor libs
              # /run            -> needed to get DNS working in the chroot. Alternative: manually populate /etc/resolv.conf
              # /var            -> needed to get access to mir_socket, at least
@@ -139,16 +139,27 @@ enter_chroot() {
         sudo mount --rbind "$mountpoint" ${CHROOT_PATH}$mountpoint
     done
 
-# enter the chroot with a modified LD_LIBRARY_PATH in order to use the homebuilt lttng-ctl in /usr/local/lib
-    sudo chroot $CHROOT_PATH /usr/bin/env \
-        LD_LIBRARY_PATH=/usr/local/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH} \
-        $(env | grep DBUS_SESSION_BUS_ADDRESS) \
-        $(env | grep UPSTART_SESSION) \
-        $(env | grep GRID_UNIT_PX) \
-        $(env | grep QT_QPA_PLATFORM) \
-        INSIDE_TRACING_CHROOT=1 \
-        /bin/bash -c "cd /home/phablet/lttng_tracing_scripts && su phablet -m"
+#LET'S TRANSFER THE WHOLE USER ENV TO THE CHROOT (not all is needed, but this is just to avoid heisenbugs due to missing variables inside the chroot)
+#Read the current env, split it and add quotes to the values (to avoid syntax problems when passing them to "env")
+backupifs=$IFS
+IFS=$'\n'
+vars=
+for val in $(env); do
+    name=`echo $val | cut -f1 -d=`
+    value=`echo $val | cut -f2- -d=`
+    vars+="${vars:+ }$name=\"$value\""
+done
+IFS=$backupifs
 
+chroot_cmd="sudo chroot $CHROOT_PATH /usr/bin/env -i ${vars} "
+# enter the chroot with a modified LD_LIBRARY_PATH in order to use the homebuilt lttng-ctl in /usr/local/lib
+chroot_cmd+="LD_LIBRARY_PATH=/usr/local/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH} INSIDE_TRACING_CHROOT=1 "
+chroot_cmd+="/bin/bash -c \"cd /home/phablet/lttng_tracing_scripts && su phablet -m\""
+
+#NOTE: DO NOT REMOVE THE EVAL
+#Without "eval" env was returning 5018 not found, it was taking it from the SSH_CLIENT host variable, even though it was inside quotes.
+#And the problem did not show when directly running EXACTLY the same command from outside the script
+eval $chroot_cmd
 }
 
 umount_chroot() {
@@ -208,7 +219,7 @@ while [ "$1" != "" ]; do
             VAL=$2
             case $OPTION in
             --chroot-path)
-                CHROOT_PATH=$VAL
+                CHROOT_PATH=`realpath $VAL`
                 shift
             ;;
             *)
@@ -225,7 +236,6 @@ while [ "$1" != "" ]; do
         ;;
     esac
 done
-
 
 ARGUMENTS=$@
 if [ -z "$ARGUMENTS" ] ; then
