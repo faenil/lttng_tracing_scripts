@@ -1,0 +1,268 @@
+#!/bin/bash
+
+
+#################### MODIFY THE FOLLOWING ENV VARS TO LINK TO THE INSTRUMENTED LIBRARIES YOU WANT TO PROFILE ##################
+client_vars_customizable() {
+    #ADJUST THE LD_LIBRARY_PATH TO INCLUDE THE INSTRUMENTED LIBRARIES YOU WANT TO PROFILE WHEN LAUNCHING MIR CLIENTS
+
+    # EXAMPLES
+    # CUSTOM PLATFORM-API (NOTE: just enable one between desktop and touch mir client plugins)
+    export LD_LIBRARY_PATH=/home/phablet/platform-api/install/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+    # CUSTOM QTUBUNTU
+    export QT_QPA_PLATFORM_PLUGIN_PATH=/home/phablet/QtUbuntu/qtubuntu/install/usr/lib/arm-linux-gnueabihf/qt5/plugins/platforms
+    export LD_LIBRARY_PATH=/home/phablet/QtUbuntu/qtubuntu/install/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+    # CUSTOM MIR CLIENT
+    export MIR_CLIENT_PLATFORM_PATH=/home/phablet/Mir/ubuntu/build/lib/client-modules
+}
+
+server_vars_customizable() {
+    #ADJUST THE LD_LIBRARY_PATH TO INCLUDE THE INSTRUMENTED LIBRARIES YOU WANT TO PROFILE WHEN LAUNCHING MIR SERVERS
+
+    # CUSTOM MIR SERVER (e.g. Unity8)
+    export QT_QPA_PLATFORM_PLUGIN_PATH=/home/phablet/Qt_Mir/install/lib/qt5/plugins/platforms/
+    export MIR_SERVER_PLATFORM_PATH=/home/phablet/Mir/ubuntu/build/lib/server-modules
+    export MIR_CLIENT_PLATFORM_PATH=/home/phablet/Mir/ubuntu/build/lib/client-modules
+
+    # CUSTOM QTMIR
+    export LD_LIBRARY_PATH=/home/phablet/Qt_Mir/install/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+}
+
+###################### END OF CUSTOMIZABLE SECTION ##########################
+
+
+
+
+
+
+SCRIPT_NAME=`basename $0`
+CHROOT_PATH=/home/phablet/chroot-tracing
+SCRIPTS_ABS_PATH=/home/phablet/lttng_tracing_scripts
+MOUNTPOINTS=("/system" "/vendor" "/run" "/opt" "/proc" "/dev" "/sys" "/tmp" "$SCRIPTS_ABS_PATH" "/var")
+             # /system /vendor -> vendor libs
+             # /run            -> needed to get DNS working in the chroot. Alternative: manually populate /etc/resolv.conf
+             # /var            -> needed to get access to mir_socket, at least
+             # /opt            -> get access to the apps installed on device
+
+
+client_vars() {
+    common_vars
+    client_vars_customizable
+}
+
+server_vars() {
+    common_vars
+    server_vars_customizable
+}
+
+common_vars() {
+    export LD_PRELOAD=/usr/local/lib/liblttng-ust-cyg-profile.so
+    export LD_LIBRARY_PATH=/home/phablet/Qt_builds/qtdeclarative-opensource-src-5.4.1/install_instrumented/usr/lib/arm-linux-gnueabihf${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+
+    # Needed for both client and server (thanks aguirre)
+    # They're split on different lines just to make it easier to remove any of them if needed
+    export LD_LIBRARY_PATH=/home/phablet/Mir/ubuntu/build/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+}
+
+positive_msg() {
+    echo -e "\e[1;32m$1.\e[0m"
+}
+
+negative_msg() {
+    echo -e "\e[1;31mERROR: $1.\e[0m"
+}
+
+echo_chroot_not_found() {
+    negative_msg "Chroot not found. Please create a chroot first (also check that you're not already inside the chroot)."
+}
+
+usage() {
+    echo "Usage: $SCRIPT_NAME [options] command [arguments]"
+    echo "Available commands:"
+    echo "    create-chroot          - Create the chroot that will be used for building and tracing binaries."
+    echo "    update-chroot          - apt-get update the chroot."
+    echo "    enter-chroot           - Setup the environment, the mountpoints and enter the chroot."
+    echo "    umount-chroot          - Unmount the mountpoints setup by the chroot."
+    echo "    trace <binary> <args>  - Create/setup an LTTng session and run <binary> in the environment defined by client_vars() in the script."
+    echo "    restart-unity8         - Stop the current Unity8 process and restart it in the profiling environment defined by server_vars() in the script. This is needed to profile the Unity8 process (which acts as Mir server) as well as the app (which acts as a Mir client)."
+    echo ""
+    echo "Options:"
+    echo "    --chroot-path <path>   - Use a custom chroot path. Defaults to $CHROOT_PATH"
+}
+
+exists_chroot() {
+    [ -d "$CHROOT_PATH" ] && [ -d "${CHROOT_PATH}/home/phablet" ]
+}
+
+create_chroot() {
+    if exists_chroot; then
+        echo "It seems like you already have a chroot. If you want to create it again please delete $CHROOT_PATH, first making sure all the mountpoints within it have been unmounted, to avoid losing data."
+        return 1
+    fi
+
+    IMG_FILENAME="vivid-preinstalled-touch-armhf.tar.gz"
+    mkdir -p "$CHROOT_PATH"
+    cd "$CHROOT_PATH"
+    echo "Downloading chroot image..."
+    wget http://cdimage.ubuntu.com/ubuntu-touch/vivid/daily-preinstalled/current/"$IMG_FILENAME" || { echo "Download failed."; return 1; }
+    positive_msg "Done."
+    echo "Extracting chroot image..."
+    # sudo required to mkdev nodes
+    sudo tar -zxvf "$IMG_FILENAME" || { echo "Chroot image extraction failed."; return 1; }
+    positive_msg "Done."
+}
+
+update_chroot() {
+    if [ ! exists_chroot ]; then
+      echo_chroot_not_found
+        return 1;
+    fi
+    # NOTE: apt-get update returns 0 even when it cannot connect! we have to parse the output to know if it failed
+    sudo chroot $CHROOT_PATH /bin/bash -c "apt-get update" | grep -q "^Err" && { negative_msg "Chroot update command failed."; return 1; }
+}
+
+is_inside_chroot() {
+    env | grep -q INSIDE_TRACING_CHROOT
+}
+
+ensure_inside_chroot() {
+    is_inside_chroot || { echo "Please enter the chroot before running this command."; return 1; }
+}
+
+enter_chroot() {
+    exists_chroot || { echo_chroot_not_found; return 1; }
+    mkdir -p "${CHROOT_PATH}${SCRIPTS_ABS_PATH}" || { echo "ERROR: Failed to create the scripts directory inside the chroot."; exit 1; }
+
+    # FIXME: is this needed on anything else than Arale?
+    mkdir -p $CHROOT_PATH/system
+    mkdir -p $CHROOT_PATH/vendor
+    for mountpoint in ${MOUNTPOINTS[@]}; do
+        sudo mount --rbind "$mountpoint" ${CHROOT_PATH}$mountpoint
+    done
+
+# enter the chroot with a modified LD_LIBRARY_PATH in order to use the homebuilt lttng-ctl in /usr/local/lib
+    sudo chroot $CHROOT_PATH /usr/bin/env \
+        LD_LIBRARY_PATH=/usr/local/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH} \
+        $(env | grep DBUS_SESSION_BUS_ADDRESS) \
+        $(env | grep UPSTART_SESSION) \
+        $(env | grep GRID_UNIT_PX) \
+        $(env | grep QT_QPA_PLATFORM) \
+        INSIDE_TRACING_CHROOT=1 \
+        /bin/bash -c "cd /home/phablet/lttng_tracing_scripts && su phablet -m"
+
+}
+
+umount_chroot() {
+    is_inside_chroot && { echo "Please exit the chroot before trying to unmount the directories."; return 1; }
+    for mountpoint in ${MOUNTPOINTS[@]}; do
+        echo "Umounting ${CHROOT_PATH}$mountpoint"
+        # remove all duplicated mountpoints as well
+        while mount | grep -q ${CHROOT_PATH}$mountpoint; do
+            sudo umount -Rf ${CHROOT_PATH}$mountpoint || { echo "Umount error." ; return 1; }
+        done
+    done
+}
+
+setup_lttng() {
+    ensure_inside_chroot || return 1;
+    client_vars || return 1
+
+    lttng create || return 1
+    lttng enable-channel --userspace --num-subbuf 8 --subbuf-size 8M big-channel || return 1
+    lttng enable-event -ua --channel big-channel || return 1
+    lttng add-context -u -t vpid -t vtid -t procname -t ip || return 1
+    lttng start || return 1
+}
+
+restart_unity8() {
+    ensure_inside_chroot || return 1;
+    server_vars || return 1;
+
+    # su phablet reset PATH and "stop" is only in the superusers PATH
+    /sbin/stop unity8
+    MIR_SERVER_HOST_SOCKET=/var/run/mir_socket MIR_SERVER_NAME=session-0 unity8 &
+
+    # Maliit server must be started right after unity8 launches, but not too late.
+    # The sleep seems to do the job. This is just a hack. The clean solution would
+    # be to use the Unity8 upstart job, but we're interacting with the upstart 
+    # session that is actually outside the chroot, so that would need modifying
+    # files in the host environment, and I'd rather avoid that
+    sleep 5
+    maliit-server
+}
+
+trace_app () {
+    setup_lttng || return 1
+    [ $# -eq 0 ] && { echo "No parameters specified."; return 1; }
+    $@ && lttng stop
+    echo "Tracing completed, please pull the trace and destroy the session with \"lttng destroy\""
+}
+
+while [ "$1" != "" ]; do
+    OPTION=`echo $1 | awk -F= '{print $1}'`
+    case $1 in
+        -*)
+            if [ -z "$2" ]; then
+                usage
+                exit 1
+            fi
+            VAL=$2
+            case $OPTION in
+            --chroot-path)
+                CHROOT_PATH=$VAL
+                shift
+            ;;
+            *)
+                usage
+                echo ""
+                negative_msg "unknown option: $OPTION"
+                exit 1
+            ;;
+            esac
+            shift
+        ;;
+        *)
+            break
+        ;;
+    esac
+done
+
+
+ARGUMENTS=$@
+if [ -z "$ARGUMENTS" ] ; then
+    usage
+    exit 1
+else
+    case "$1" in
+        create-chroot)
+            is_inside_chroot && { echo "You're already inside the chroot. Exit the chroot before creating a new one."; exit 1; }
+            create_chroot || { echo "Chroot creation failed."; exit 1; }
+            update_chroot || { exit 1; }
+        ;;
+        update-chroot)
+            update_chroot || { exit 1; }
+        ;;
+        enter-chroot)
+            enter_chroot || { exit 1; }
+        ;;
+        umount-chroot)
+            umount_chroot || { exit 1; }
+        ;;
+        trace)
+            if [ -z "$2" ]; then
+                usage
+                exit 1
+            else
+                trace_app "$2" ... "$N" || exit 1;
+            fi
+        ;;
+        restart-unity8)
+            restart_unity8 || exit 1
+        ;;
+        *)
+            usage
+            echo ""
+            negative_msg "unknown command \"$COMMAND\""
+            exit 1
+        ;;
+    esac
+fi
