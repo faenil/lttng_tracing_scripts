@@ -7,36 +7,42 @@
 common_vars_customizable() {
     export LD_LIBRARY_PATH=/home/phablet/Qt_builds/qtdeclarative-opensource-src-5.4.1/install_instrumented/usr/lib/arm-linux-gnueabihf${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 
-    # Needed for both client and server (thanks aguirre)
+    # Needed for both client and server (thanks AlbertA)
     # They're split on different lines just to make it easier to remove any of them if needed
-    export LD_LIBRARY_PATH=/home/phablet/Mir/ubuntu/build/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+    # export LD_LIBRARY_PATH=/home/phablet/Mir/ubuntu/build/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 }
 
 # Vars that only apply to Mir clients (e.g. Ubuntu Touch applications)
 client_vars_customizable() {
-    #ADJUST THE LD_LIBRARY_PATH TO INCLUDE THE INSTRUMENTED LIBRARIES YOU WANT TO PROFILE WHEN LAUNCHING MIR CLIENTS
+    #noop, avoid syntax error for empty functions
+    :
+
+    # ADJUST THE LD_LIBRARY_PATH TO INCLUDE THE INSTRUMENTED LIBRARIES YOU WANT TO PROFILE WHEN LAUNCHING MIR CLIENTS
 
     # EXAMPLES
     # CUSTOM PLATFORM-API (NOTE: just enable one between desktop and touch mir client plugins)
-    export LD_LIBRARY_PATH=/home/phablet/platform-api/install/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+    # export LD_LIBRARY_PATH=/home/phablet/platform-api/install/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
     # CUSTOM QTUBUNTU
-    export QT_QPA_PLATFORM_PLUGIN_PATH=/home/phablet/QtUbuntu/qtubuntu/install/usr/lib/arm-linux-gnueabihf/qt5/plugins/platforms
-    export LD_LIBRARY_PATH=/home/phablet/QtUbuntu/qtubuntu/install/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+    # export QT_QPA_PLATFORM_PLUGIN_PATH=/home/phablet/QtUbuntu/qtubuntu/install/usr/lib/arm-linux-gnueabihf/qt5/plugins/platforms
+    # export LD_LIBRARY_PATH=/home/phablet/QtUbuntu/qtubuntu/install/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
     # CUSTOM MIR CLIENT
-    export MIR_CLIENT_PLATFORM_PATH=/home/phablet/Mir/ubuntu/build/lib/client-modules
+    # The LD_LIBRARY_PATH is already modified in common_vars_customizable
+    # export MIR_CLIENT_PLATFORM_PATH=/home/phablet/Mir/ubuntu/build/lib/client-modules
 }
 
 # Vars that only apply to Mir servers (e.g. Unity8)
 server_vars_customizable() {
-    #ADJUST THE LD_LIBRARY_PATH TO INCLUDE THE INSTRUMENTED LIBRARIES YOU WANT TO PROFILE WHEN LAUNCHING MIR SERVERS
+    #noop, avoid syntax error for empty functions
+    :
+    # ADJUST THE LD_LIBRARY_PATH TO INCLUDE THE INSTRUMENTED LIBRARIES YOU WANT TO PROFILE WHEN LAUNCHING MIR SERVERS
 
     # CUSTOM MIR SERVER (e.g. Unity8)
-    export QT_QPA_PLATFORM_PLUGIN_PATH=/home/phablet/Qt_Mir/install/lib/qt5/plugins/platforms/
-    export MIR_SERVER_PLATFORM_PATH=/home/phablet/Mir/ubuntu/build/lib/server-modules
-    export MIR_CLIENT_PLATFORM_PATH=/home/phablet/Mir/ubuntu/build/lib/client-modules
+    # export QT_QPA_PLATFORM_PLUGIN_PATH=/home/phablet/Qt_Mir/install/lib/qt5/plugins/platforms/
+    # export MIR_SERVER_PLATFORM_PATH=/home/phablet/Mir/ubuntu/build/lib/server-modules
+    # export MIR_CLIENT_PLATFORM_PATH=/home/phablet/Mir/ubuntu/build/lib/client-modules
 
     # CUSTOM QTMIR
-    export LD_LIBRARY_PATH=/home/phablet/Qt_Mir/install/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+    # export LD_LIBRARY_PATH=/home/phablet/Qt_Mir/install/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 }
 
 ###################### END OF CUSTOMIZABLE SECTION ##########################
@@ -186,7 +192,6 @@ umount_chroot() {
 
 setup_lttng() {
     ensure_inside_chroot || return 1;
-    client_vars || return 1
 
     lttng create || return 1
     lttng enable-channel --userspace --num-subbuf 8 --subbuf-size 8M big-channel || return 1
@@ -213,9 +218,10 @@ restart_unity8() {
 }
 
 trace_app () {
+    client_vars || return 1
     setup_lttng || return 1
     [ $# -eq 0 ] && { echo "No parameters specified."; return 1; }
-    $@ && lttng stop
+    eval "$@" && lttng stop
     echo "Tracing completed, please pull the trace and destroy the session with \"lttng destroy\""
 }
 
@@ -273,7 +279,7 @@ else
                 usage
                 exit 1
             else
-                trace_app "$2" ... "$N" || exit 1;
+                trace_app ${@:2} || exit 1;
             fi
         ;;
         restart-unity8)
