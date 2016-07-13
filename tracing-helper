@@ -127,7 +127,7 @@ create_chroot() {
 
 update_chroot() {
     if [ ! exists_chroot ]; then
-      echo_chroot_not_found
+        echo_chroot_not_found
         return 1;
     fi
     # NOTE: apt-get update returns 0 even when it cannot connect! we have to parse the output to know if it failed
@@ -194,7 +194,8 @@ setup_lttng() {
     ensure_inside_chroot || return 1;
 
     lttng create || return 1
-    lttng enable-channel --userspace --num-subbuf 8 --subbuf-size 8M big-channel || return 1
+    lttng enable-channel --userspace --num-subbuf 8 --subbuf-size 8M big-channel || \
+        { negative_msg "channel creation failed. Try destroying the sessions reported by lttng list (if any)"; lttng destroy; return 1; }
     lttng enable-event -ua --channel big-channel || return 1
     lttng add-context -u -t vpid -t vtid -t procname -t ip || return 1
     lttng start || return 1
@@ -220,8 +221,11 @@ restart_unity8() {
 trace_app () {
     client_vars || return 1
     setup_lttng || return 1
-    [ $# -eq 0 ] && { echo "No parameters specified."; return 1; }
-    eval "$@" && lttng stop
+    [ $# -eq 0 ] && { negative_msg "no parameters specified"; return 1; }
+    trap "echo Interrupted" INT
+    $@
+    trap - INT
+    lttng stop
     echo "Tracing completed, please pull the trace and destroy the session with \"lttng destroy\""
 }
 
