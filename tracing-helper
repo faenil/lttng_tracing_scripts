@@ -2,6 +2,17 @@
 
 
 #################### MODIFY THE FOLLOWING ENV VARS TO LINK TO THE INSTRUMENTED LIBRARIES YOU WANT TO PROFILE ##################
+
+# Variables that apply to both client and server
+common_vars_customizable() {
+    export LD_LIBRARY_PATH=/home/phablet/Qt_builds/qtdeclarative-opensource-src-5.4.1/install_instrumented/usr/lib/arm-linux-gnueabihf${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+
+    # Needed for both client and server (thanks aguirre)
+    # They're split on different lines just to make it easier to remove any of them if needed
+    export LD_LIBRARY_PATH=/home/phablet/Mir/ubuntu/build/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+}
+
+# Vars that only apply to Mir clients (e.g. Ubuntu Touch applications)
 client_vars_customizable() {
     #ADJUST THE LD_LIBRARY_PATH TO INCLUDE THE INSTRUMENTED LIBRARIES YOU WANT TO PROFILE WHEN LAUNCHING MIR CLIENTS
 
@@ -15,6 +26,7 @@ client_vars_customizable() {
     export MIR_CLIENT_PLATFORM_PATH=/home/phablet/Mir/ubuntu/build/lib/client-modules
 }
 
+# Vars that only apply to Mir servers (e.g. Unity8)
 server_vars_customizable() {
     #ADJUST THE LD_LIBRARY_PATH TO INCLUDE THE INSTRUMENTED LIBRARIES YOU WANT TO PROFILE WHEN LAUNCHING MIR SERVERS
 
@@ -55,12 +67,8 @@ server_vars() {
 }
 
 common_vars() {
+    common_vars_customizable
     export LD_PRELOAD=/usr/local/lib/liblttng-ust-cyg-profile.so
-    export LD_LIBRARY_PATH=/home/phablet/Qt_builds/qtdeclarative-opensource-src-5.4.1/install_instrumented/usr/lib/arm-linux-gnueabihf${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
-
-    # Needed for both client and server (thanks aguirre)
-    # They're split on different lines just to make it easier to remove any of them if needed
-    export LD_LIBRARY_PATH=/home/phablet/Mir/ubuntu/build/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 }
 
 positive_msg() {
@@ -141,6 +149,9 @@ enter_chroot() {
 
 #LET'S TRANSFER THE WHOLE USER ENV TO THE CHROOT (not all is needed, but this is just to avoid heisenbugs due to missing variables inside the chroot)
 #Read the current env, split it and add quotes to the values (to avoid syntax problems when passing them to "env")
+#We're not bindmounting the $HOME on purpose to avoid data loss if you forget to umount and delete the chroot.
+#An alternative would be co just copy host's .profile to the chroot, but that would not cover vars like the Upstart session, DBus session, etc
+#I'd rather just transfer the whole env. Better safe than sorry.
 backupifs=$IFS
 IFS=$'\n'
 vars=
