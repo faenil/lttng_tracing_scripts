@@ -58,7 +58,6 @@ SCRIPTS_ABS_PATH=/home/phablet/lttng_tracing_scripts
 MOUNTPOINTS=("/system" "/vendor" "/run" "/opt" "/proc" "/dev" "/sys" "/tmp" "$SCRIPTS_ABS_PATH")
              # /system /vendor -> vendor libs
              # /run            -> needed to get DNS working in the chroot. Alternative: manually populate /etc/resolv.conf
-             # /var            -> needed to get access to mir_socket, at least
              # /opt            -> get access to the apps installed on device
 
 
@@ -138,19 +137,28 @@ is_inside_chroot() {
     env | grep -q INSIDE_TRACING_CHROOT
 }
 
+is_mounted() {
+    [[ $# -gt 0 ]] || { negative_msg "no mountpoint specified"; return 1; }
+    grep -qs $1 /proc/mounts
+}
+
 ensure_inside_chroot() {
     is_inside_chroot || { echo "Please enter the chroot before running this command."; return 1; }
 }
 
 enter_chroot() {
     exists_chroot || { echo_chroot_not_found; return 1; }
-    mkdir -p "${CHROOT_PATH}${SCRIPTS_ABS_PATH}" || { echo "ERROR: Failed to create the scripts directory inside the chroot."; exit 1; }
+    mkdir -p "${CHROOT_PATH}${SCRIPTS_ABS_PATH}" || { negative_msg "failed to create the scripts directory inside the chroot."; exit 1; }
 
     # FIXME: is this needed on anything else than Arale?
     mkdir -p $CHROOT_PATH/system
     mkdir -p $CHROOT_PATH/vendor
     for mountpoint in ${MOUNTPOINTS[@]}; do
-        sudo mount --rbind "$mountpoint" ${CHROOT_PATH}$mountpoint
+        if ! is_mounted ${CHROOT_PATH}$mountpoint;
+        then
+            echo "Bind-mounting ${CHROOT_PATH}$mountpoint..."
+            sudo mount --rbind "$mountpoint" ${CHROOT_PATH}$mountpoint
+        fi
     done
 
 #LET'S TRANSFER THE WHOLE USER ENV TO THE CHROOT (not all is needed, but this is just to avoid heisenbugs due to missing variables inside the chroot)
@@ -182,10 +190,11 @@ eval $chroot_cmd
 umount_chroot() {
     is_inside_chroot && { echo "Please exit the chroot before trying to unmount the directories."; return 1; }
     for mountpoint in ${MOUNTPOINTS[@]}; do
-        echo "Umounting ${CHROOT_PATH}$mountpoint"
+        mountpoint_chroot_path=${CHROOT_PATH}$mountpoint
         # remove all duplicated mountpoints as well
-        while mount | grep -q ${CHROOT_PATH}$mountpoint; do
-            sudo umount -Rf ${CHROOT_PATH}$mountpoint || { echo "Umount error." ; return 1; }
+        while is_mounted "$mountpoint_chroot_path"; do
+            echo "Umounting $mountpoint_chroot_path"
+            sudo umount -Rf "$mountpoint_chroot_path" || { echo "Umount error." ; return 1; }
         done
     done
 }
@@ -211,7 +220,7 @@ restart_unity8() {
 
     # Maliit server must be started right after unity8 launches, but not too late.
     # The sleep seems to do the job. This is just a hack. The clean solution would
-    # be to use the Unity8 upstart job, but we're interacting with the upstart 
+    # be to use the Unity8 upstart job, but we're interacting with the upstart
     # session that is actually outside the chroot, so that would need modifying
     # files in the host environment, and I'd rather avoid that
     sleep 5
