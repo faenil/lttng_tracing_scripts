@@ -73,7 +73,6 @@ server_vars() {
 
 common_vars() {
     common_vars_customizable
-    export LD_PRELOAD=/usr/local/lib/liblttng-ust-cyg-profile.so
 }
 
 positive_msg() {
@@ -232,7 +231,7 @@ trace_app () {
     setup_lttng || return 1
     [ $# -eq 0 ] && { negative_msg "no parameters specified"; return 1; }
     trap "echo Interrupted" INT
-    $@
+    LD_PRELOAD=/usr/local/lib/liblttng-ust-cyg-profile.so $@
     trap - INT
     lttng stop
     echo "Tracing completed, please pull the trace and destroy the session with \"lttng destroy\""
