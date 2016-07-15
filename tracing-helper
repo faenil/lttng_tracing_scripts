@@ -202,8 +202,7 @@ setup_lttng() {
     ensure_inside_chroot || return 1;
 
     lttng create || return 1
-    lttng enable-channel --userspace --num-subbuf 8 --subbuf-size 8M big-channel || \
-        { negative_msg "channel creation failed. Try destroying the sessions reported by lttng list (if any)"; lttng destroy; return 1; }
+    lttng enable-channel --userspace --num-subbuf 8 --subbuf-size 8M big-channel || { negative_msg "channel creation failed. Try destroying the sessions reported by lttng list (if any)"; lttng destroy; return 1; }
     lttng enable-event -ua --channel big-channel || return 1
     lttng add-context -u -t vpid -t vtid -t procname -t ip || return 1
     lttng start || return 1
@@ -230,9 +229,7 @@ trace_app () {
     client_vars || return 1
     setup_lttng || return 1
     [ $# -eq 0 ] && { negative_msg "no parameters specified"; return 1; }
-    trap "echo Interrupted" INT
     LD_PRELOAD=/usr/local/lib/liblttng-ust-cyg-profile.so $@
-    trap - INT
     lttng stop
     echo "Tracing completed, please pull the trace and destroy the session with \"lttng destroy\""
 }
@@ -300,7 +297,7 @@ else
         *)
             usage
             echo ""
-            negative_msg "unknown command \"$COMMAND\""
+            negative_msg "unknown command \"$1\""
             exit 1
         ;;
     esac
