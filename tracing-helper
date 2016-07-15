@@ -214,7 +214,7 @@ restart_unity8() {
 
     # su phablet reset PATH and "stop" is only in the superusers PATH
     /sbin/stop unity8
-    MIR_SERVER_HOST_SOCKET=/var/run/mir_socket MIR_SERVER_NAME=session-0 unity8 &
+    LD_PRELOAD=/usr/local/lib/liblttng-ust-cyg-profile.so MIR_SERVER_HOST_SOCKET=/var/run/mir_socket MIR_SERVER_NAME=session-0 unity8 &
 
     # Maliit server must be started right after unity8 launches, but not too late.
     # The sleep seems to do the job. This is just a hack. The clean solution would
