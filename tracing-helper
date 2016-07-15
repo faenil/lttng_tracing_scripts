@@ -226,10 +226,11 @@ restart_unity8() {
 }
 
 trace_app () {
-    client_vars || return 1
-    setup_lttng || return 1
     [ $# -eq 0 ] && { negative_msg "no parameters specified"; return 1; }
+    setup_lttng || return 1
+    client_vars || return 1
     LD_PRELOAD=/usr/local/lib/liblttng-ust-cyg-profile.so $@
+    sleep 1
     lttng stop
     echo "Tracing completed, please pull the trace and destroy the session with \"lttng destroy\""
 }
