@@ -219,7 +219,7 @@ restart_unity8() {
 
     # su phablet reset PATH and "stop" is only in the superusers PATH
     /sbin/stop unity8
-    LD_PRELOAD=/usr/local/lib/liblttng-ust-cyg-profile.so MIR_SERVER_HOST_SOCKET=/var/run/mir_socket MIR_SERVER_NAME=session-0 unity8 &
+    LD_PRELOAD=/usr/local/lib/liblttng-ust-cyg-profile.so:/usr/local/lib/liblttng-ust-dl.so:/usr/local/lib/liblttng-ust-fork.so MIR_SERVER_HOST_SOCKET=/var/run/mir_socket MIR_SERVER_NAME=session-0 unity8 &
 
     # Maliit server must be started right after unity8 launches, but not too late.
     # The sleep seems to do the job. This is just a hack. The clean solution would
@@ -234,7 +234,7 @@ trace_app () {
     [ $# -eq 0 ] && { negative_msg "no parameters specified"; return 1; }
     setup_lttng || return 1
     client_vars || return 1
-    LD_PRELOAD=/usr/local/lib/liblttng-ust-cyg-profile.so $@
+    LD_PRELOAD=/usr/local/lib/liblttng-ust-cyg-profile.so:/usr/local/lib/liblttng-ust-dl.so:/usr/local/lib/liblttng-ust-fork.so $@
     sleep 1
     lttng stop
     echo "Tracing completed, please pull the trace and destroy the session with \"lttng destroy\""
