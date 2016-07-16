@@ -136,9 +136,13 @@ is_inside_chroot() {
     env | grep -q INSIDE_TRACING_CHROOT
 }
 
+#$1: the pattern that will be used to grep mountpoints
+#NOTE: in /proc/mounts spaces are stores with the escape char \040
+#So this function needs tweaking if we want to handle dirs with spaces
 is_mounted() {
     [[ $# -gt 0 ]] || { negative_msg "no mountpoint specified"; return 1; }
-    grep -qs $1 /proc/mounts
+    #Match the exact string
+    cut -f2 -d' ' /proc/mounts | grep -qE "^${1}\$"
 }
 
 ensure_inside_chroot() {
@@ -190,6 +194,7 @@ umount_chroot() {
     is_inside_chroot && { echo "Please exit the chroot before trying to unmount the directories."; return 1; }
     for mountpoint in ${MOUNTPOINTS[@]}; do
         mountpoint_chroot_path=${CHROOT_PATH}$mountpoint
+        [ -z "$mountpoint_chroot_path" ] && { negative_msg "empty mountpoint specified"; return 1; }
         # remove all duplicated mountpoints as well
         while is_mounted "$mountpoint_chroot_path"; do
             echo "Umounting $mountpoint_chroot_path"
@@ -289,7 +294,7 @@ else
                 usage
                 exit 1
             else
-                trace_app ${@:2} || exit 1;
+                trace_app ${@:2}
             fi
         ;;
         restart-unity8)
